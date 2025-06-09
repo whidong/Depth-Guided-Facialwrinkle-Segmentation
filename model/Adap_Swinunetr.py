@@ -101,12 +101,6 @@ class ProbSwinUNetr(nn.Module):
         
         # 4. Output
         logits = self.unetr.out(out)
-        
-        #d4 = self.unet.dec4(x5, x4)
-        #d3 = self.unet.dec3(d4, x3)
-        #d2 = self.unet.dec2(d3, x2)
-        #d1 = self.unet.dec1(d2, x1)
-        # out = self.unet.out_conv(d1)
 
         # loss
         if is_training and gt is not None:
