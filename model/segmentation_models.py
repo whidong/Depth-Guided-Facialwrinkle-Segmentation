@@ -13,7 +13,7 @@ def create_model(model_type="swin_unetr", depth = (2, 2, 6, 2), in_channels=3, o
         - in_channels (int): input channel
         - out_channels (int): output channel (class)
         - feature_size (int): Swin UNETR transformer embedding feature size
-        - use_checkpoint (bool): Swin UNETR memory optimize
+        - use_checkpoint (bool): Gradient checkpoint memory optimize
         - use_v2 (bool): select Swin UNETR backbone SwinTransformer or SwinTransformerV2
         - pretrain (bool) : Swin UNETR use pretrained imageNet SwinTransformerV2
         - pretrain_path (str): path of pretrain ckpt file
@@ -58,6 +58,7 @@ def create_model(model_type="swin_unetr", depth = (2, 2, 6, 2), in_channels=3, o
         return ProbUNet(
             unet = prob_model,
             latent_dim = feature_size,
+            use_checkpoint = use_checkpoint
         )
     
     else:

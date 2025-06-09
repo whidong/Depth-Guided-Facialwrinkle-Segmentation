@@ -74,10 +74,11 @@ class TileConcatFcomb(nn.Module):
         return out
 
 class ProbUNet(nn.Module):
-    def __init__(self, unet, latent_dim=128, freeze_encoder=False):
+    def __init__(self, unet, latent_dim=128, freeze_encoder=False, use_checkpoint=True):
         super().__init__()
         self.unet = unet 
         self.latent_dim = latent_dim
+        self.use_checkpoint = use_checkpoint
 
         self.prior_net = ConvGaussian(in_channels=5, latent_dim=latent_dim)       # Depth+Texture
         self.posterior_net = ConvGaussian(in_channels=6, latent_dim=latent_dim)   # Depth + Texture + GT
@@ -104,31 +105,44 @@ class ProbUNet(nn.Module):
             z = z_post
         else:
             z = z_prior
+        if self.use_checkpoint:
+            # 1. Encoder
+            x0 = checkpoint.checkpoint(self.unet.input_block, x_input, use_reentrant=False)
+            x1 = checkpoint.checkpoint(self.unet.enc1, x0, use_reentrant=False)
+            x2 = checkpoint.checkpoint(self.unet.enc2, x1, use_reentrant=False)
+            x3 = checkpoint.checkpoint(self.unet.enc3, x2, use_reentrant=False)
+            x4 = checkpoint.checkpoint(self.unet.enc4, x3, use_reentrant=False)
+            x5 = checkpoint.checkpoint(self.unet.bottom, x4, use_reentrant=False)
 
-        # 1. Encoder
-        x0 = checkpoint.checkpoint(self.unet.input_block, x_input, use_reentrant=False)
-        x1 = checkpoint.checkpoint(self.unet.enc1, x0, use_reentrant=False)
-        x2 = checkpoint.checkpoint(self.unet.enc2, x1, use_reentrant=False)
-        x3 = checkpoint.checkpoint(self.unet.enc3, x2, use_reentrant=False)
-        x4 = checkpoint.checkpoint(self.unet.enc4, x3, use_reentrant=False)
-        x5 = checkpoint.checkpoint(self.unet.bottom, x4, use_reentrant=False)
+            # 2. Decoder
+            d4 = checkpoint.checkpoint(lambda a, b: self.unet.dec4(a, b), x5, x4, use_reentrant=False)
+            d3 = checkpoint.checkpoint(lambda a, b: self.unet.dec3(a, b), d4, x3, use_reentrant=False)
+            d2 = checkpoint.checkpoint(lambda a, b: self.unet.dec2(a, b), d3, x2, use_reentrant=False)
+            d1 = checkpoint.checkpoint(lambda a, b: self.unet.dec1(a, b), d2, x1, use_reentrant=False)
 
-        # 2. Decoder
-        d4 = checkpoint.checkpoint(lambda a, b: self.unet.dec4(a, b), x5, x4, use_reentrant=False)
-        d3 = checkpoint.checkpoint(lambda a, b: self.unet.dec3(a, b), d4, x3, use_reentrant=False)
-        d2 = checkpoint.checkpoint(lambda a, b: self.unet.dec2(a, b), d3, x2, use_reentrant=False)
-        d1 = checkpoint.checkpoint(lambda a, b: self.unet.dec1(a, b), d2, x1, use_reentrant=False)
-
-        # 3. CLFM
-        d1 = checkpoint.checkpoint(lambda x: self.adapter(x, z), d1, use_reentrant=False)
+            # 3. CLFM
+            d1 = checkpoint.checkpoint(lambda x: self.adapter(x, z), d1, use_reentrant=False)
         
-        out = checkpoint.checkpoint(self.unet.out_conv, d1, use_reentrant=False)
+            out = checkpoint.checkpoint(self.unet.out_conv, d1, use_reentrant=False)
+        else:
+            # 1. Encoder
+            x0 = self.unet.input_block(x_input)
+            x1 = self.unet.enc1(x0)
+            x2 = self.unet.enc2(x1)
+            x3 = self.unet.enc3(x2)
+            x4 = self.unet.enc4(x3)
+            x5 = self.unet.bottom(x4)
+
+            # 2. Decoder
+            d4 = self.unet.dec4(x5, x4)
+            d3 = self.unet.dec3(d4, x3)
+            d2 = self.unet.dec2(d3, x2)
+            d1 = self.unet.dec1(d2, x1)
+
+            # 3. CLFM
+            d1 = self.adapter(d1, z)
         
-        #d4 = self.unet.dec4(x5, x4)
-        #d3 = self.unet.dec3(d4, x3)
-        #d2 = self.unet.dec2(d3, x2)
-        #d1 = self.unet.dec1(d2, x1)
-        # out = self.unet.out_conv(d1)
+            out = self.unet.out_conv(d1)
 
         # loss
         if is_training and gt is not None:

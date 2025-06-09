@@ -101,7 +101,7 @@ class ProbSwinUNetr(nn.Module):
         
         # 4. Output
         logits = self.unetr.out(out)
-
+        
         # loss
         if is_training and gt is not None:
             kld = kl_loss(mu_q, logvar_q, mu_p, logvar_p)
